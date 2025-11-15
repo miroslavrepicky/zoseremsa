@@ -61,7 +61,7 @@ find_package(ASSIMP)
 
 if (ASSIMP_FOUND)
   add_definitions(-DUSE_ASSIMP=1)
-  
+
   if (WIN32 AND MINGW)
     set(ASSIMP_ROOT_DIR "${ASSIMP_ROOT_DIR}/bin/mingw/")
   elseif (WIN32 AND MSVC)
@@ -96,8 +96,10 @@ set(PPGSO_SHADER_SRC
         shader/convolution_vert.glsl shader/convolution_frag.glsl
         shader/diffuse_vert.glsl shader/diffuse_frag.glsl
         shader/texture_vert.glsl shader/texture_frag.glsl
-        )
+        shader/terrain_vert.glsl shader/terrain_frag.glsl
+)
 add_resources(shaders ${PPGSO_SHADER_SRC})
+
 
 # PPGSO library
 if (ASSIMP_FOUND)
@@ -128,15 +130,17 @@ else ()
   )
 endif ()
 
+# Link shaders do knižnice ppgso
+target_link_libraries(ppgso PUBLIC shaders)
 # Make sure GLM uses radians and GLEW is a static library
 target_compile_definitions(ppgso PUBLIC -DGLM_FORCE_RADIANS -DGLEW_STATIC)
 
 # Edit by: Samuel Zaprazny
 # Linking assimp library
 if (ASSIMP_FOUND)
-    # Link to GLFW, GLEW. OpenGL and ASSIMP
-    target_link_libraries(ppgso PUBLIC ${GLFW_LIBRARIES} ${GLEW_LIBRARIES} ${OPENGL_LIBRARIES} ${ASSIMP_LIBRARIES})
-    install(TARGETS ppgso DESTINATION .)
+  # Link to GLFW, GLEW. OpenGL and ASSIMP
+  target_link_libraries(ppgso PUBLIC ${GLFW_LIBRARIES} ${GLEW_LIBRARIES} ${OPENGL_LIBRARIES} ${ASSIMP_LIBRARIES})
+  install(TARGETS ppgso DESTINATION .)
 else ()
   # Link to GLFW, GLEW. OpenGL without ASSIMP
   # Using Tiny Obj Loader
@@ -289,7 +293,7 @@ add_custom_command(TARGET my_project POST_BUILD
 
 add_executable(island_demo src/examples/island_demo.cpp)
 target_include_directories(island_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(island_demo PRIVATE ppgso)
+target_link_libraries(island_demo PRIVATE ppgso shaders)
 
 add_custom_command(
         TARGET island_demo POST_BUILD

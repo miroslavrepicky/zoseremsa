@@ -89,7 +89,15 @@ int main() {
 
         // Render terrain (note: Terrain::render expects view + projection)
         terrain.render(view, projection);
-
+        if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+            terrain.setType(TerrainType::ISLAND);
+        }
+        if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+            terrain.setType(TerrainType::RIDGED);
+        }
+        if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+            terrain.setType(TerrainType::VORONOI);
+        }
         // Swap buffers
         glfwSwapBuffers(window);
     }
