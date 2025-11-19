@@ -17,12 +17,10 @@ Terrain::Terrain(int resolution, float size, float height, TerrainType type)
 
     instanceCount++;
 
-    // Initialize shader only once
     if (!shader) {
         shader = std::make_unique<ppgso::Shader>(terrain_vert_glsl, terrain_frag_glsl);
     }
 
-    // Initialize Perlin permutation table only once
     if (permutation.empty()) {
         permutation.resize(512);
         std::vector<int> p(256);
@@ -38,9 +36,7 @@ Terrain::Terrain(int resolution, float size, float height, TerrainType type)
         }
     }
 
-    // Initialize Voronoi cells
     initVoronoiCells();
-
     generateGrid();
     computeNormals();
 
@@ -48,7 +44,6 @@ Terrain::Terrain(int resolution, float size, float height, TerrainType type)
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    // VBO: positions
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, positions.size() * sizeof(glm::vec3),
@@ -56,7 +51,6 @@ Terrain::Terrain(int resolution, float size, float height, TerrainType type)
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    // NBO: normals
     glGenBuffers(1, &nbo);
     glBindBuffer(GL_ARRAY_BUFFER, nbo);
     glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(glm::vec3),
@@ -64,7 +58,6 @@ Terrain::Terrain(int resolution, float size, float height, TerrainType type)
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    // TBO: UV
     glGenBuffers(1, &tbo);
     glBindBuffer(GL_ARRAY_BUFFER, tbo);
     glBufferData(GL_ARRAY_BUFFER, uvs.size() * sizeof(glm::vec2),
@@ -72,7 +65,6 @@ Terrain::Terrain(int resolution, float size, float height, TerrainType type)
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    // EBO: indices
     glGenBuffers(1, &ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int),
@@ -90,7 +82,6 @@ Terrain::~Terrain() {
 
     instanceCount--;
 
-    // Clean up shader when last instance is destroyed
     if (instanceCount == 0) {
         shader.reset();
         permutation.clear();
@@ -127,19 +118,15 @@ float Terrain::grad(int hash, float x, float y) {
 }
 
 float Terrain::perlin(float x, float y) {
-    // Find unit grid cell containing point
     int X = (int)floor(x) & 255;
     int Y = (int)floor(y) & 255;
 
-    // Get relative xy coordinates within cell
     x -= floor(x);
     y -= floor(y);
 
-    // Compute fade curves
     float u = fade(x);
     float v = fade(y);
 
-    // Hash coordinates of the 4 cube corners
     int A  = permutation[X] + Y;
     int AA = permutation[A];
     int AB = permutation[A + 1];
@@ -147,7 +134,6 @@ float Terrain::perlin(float x, float y) {
     int BA = permutation[B];
     int BB = permutation[B + 1];
 
-    // Blend results from 4 corners
     return lerp(v,
         lerp(u, grad(permutation[AA], x, y),
                 grad(permutation[BA], x - 1, y)),
@@ -175,13 +161,13 @@ float Terrain::fbm(float x, float y, int octaves) {
 float Terrain::ridged(float x, float y) {
     float h = fbm(x, y, 6);
     h = 1.f - fabs(h);
-    return h * h;  // Sharper ridges
+    return h * h;
 }
 
 void Terrain::initVoronoiCells() {
     voronoiCells.clear();
     std::random_device rd;
-    std::mt19937 gen(12345); // Fixed seed for consistency
+    std::mt19937 gen(12345);
     std::uniform_real_distribution<> dis(0.0, 1.0);
 
     for (int i = 0; i < 64; i++) {
@@ -205,7 +191,6 @@ float Terrain::canyon(float x, float y) {
     float base = fbm(x * 0.02f, y * 0.02f, 4);
     float detail = fbm(x * 0.1f, y * 0.1f, 3);
 
-    // Create canyon channels
     float channel = sin(x * 0.05f + detail * 2.0f) * 0.5f + 0.5f;
     channel = pow(channel, 3.0f);
 
@@ -215,86 +200,188 @@ float Terrain::canyon(float x, float y) {
 float Terrain::plateaus(float x, float y) {
     float h = fbm(x * 0.03f, y * 0.03f, 5);
 
-    // Create stepped plateaus
     const int steps = 5;
     h = floor(h * steps) / steps;
 
-    // Add small detail
     h += fbm(x * 0.2f, y * 0.2f, 2) * 0.1f;
 
     return h;
 }
 
-// ===================== Masks and Filters =========================
+// ===================== Unified Island Generation =========================
 
 float Terrain::islandMask(float x, float y) {
+    // Convert to normalized coordinates
     float nx = x / size;
     float ny = y / size;
-    float d = sqrt(nx * nx + ny * ny);
-    return glm::clamp(1.f - glm::pow(d, 2.5f), 0.f, 1.f);
+    float distFromCenter = sqrt(nx * nx + ny * ny);
+
+    // Create organic island shape using noise
+    float angle = atan2(ny, nx);
+
+    // Large-scale shape variation (makes island non-circular)
+    float shapeNoise = perlin(angle * 2.0f, 0.0f) * 0.15f;
+    shapeNoise += perlin(angle * 5.0f, 100.0f) * 0.08f;
+
+    // Adjust distance based on shape noise
+    float adjustedDist = distFromCenter - shapeNoise;
+
+    // Create smooth falloff from center
+    float mask = 1.0f - adjustedDist;
+    mask = glm::clamp(mask, 0.f, 1.f);
+
+    // Smooth curve
+    mask = glm::pow(mask, 1.8f);
+
+    return mask;
+}
+
+float Terrain::coastlineVariation(float x, float y) {
+    // Single coherent noise for coastal features
+    float nx = x / size;
+    float ny = y / size;
+    float angle = atan2(ny, nx);
+
+    // Coastal type variation (smooth, continuous)
+    float coastal = perlin(angle * 3.0f + 50.0f, 0.0f) * 0.5f + 0.5f;
+    coastal += perlin(angle * 7.0f + 150.0f, 100.0f) * 0.25f;
+
+    return glm::clamp(coastal, 0.f, 1.f);
 }
 
 float Terrain::erosionFilter(float height, float slope) {
-    // Simulate erosion: steeper slopes lose height
     float erosion = glm::clamp(slope * 2.0f, 0.f, 1.f);
     return height * (1.0f - erosion * 0.3f);
 }
 
-// ===================== Height Computation =========================
+// ===================== MAIN HEIGHT FUNCTION =========================
 
 float Terrain::finalHeight(float x, float y) {
-    float h = 0.f;
+    // Normalized position
+    float nx = x / size;
+    float ny = y / size;
+    float distFromCenter = sqrt(nx * nx + ny * ny);
 
+    // Get island shape mask (handles non-circular shape)
+    float islandShape = islandMask(x, y);
+
+    // Base terrain using selected type
+    float baseNoise = 0.f;
     switch (type) {
         case TerrainType::ISLAND:
-            h = fbm(x * 0.05f, y * 0.05f, 5);
-            h = pow(glm::max(h, 0.f), 1.2f);
+            baseNoise = fbm(x * 0.04f, y * 0.04f, 6);
             break;
-
         case TerrainType::RIDGED:
-            h = ridged(x * 0.03f, y * 0.03f);
+            baseNoise = ridged(x * 0.03f, y * 0.03f);
             break;
-
         case TerrainType::VORONOI:
-            h = voronoi(x, y);
+            baseNoise = voronoi(x, y);
             break;
-
         case TerrainType::CANYON:
-            h = canyon(x, y);
+            baseNoise = canyon(x, y);
             break;
-
         case TerrainType::PLATEAUS:
-            h = plateaus(x, y);
+            baseNoise = plateaus(x, y);
             break;
     }
 
-    // Apply island mask
-    h *= islandMask(x, y);
+    // Normalize base noise to 0-1 range
+    baseNoise = (baseNoise + 1.0f) * 0.5f;
+    baseNoise = glm::clamp(baseNoise, 0.f, 1.f);
 
-    return h * maxHeight;
+    // Coastal variation (determines beach vs cliff)
+    float coastType = coastlineVariation(x, y);
+
+    // === HEIGHT PROFILE ===
+
+    // Ocean floor depth
+    float oceanFloor = -15.0f;
+
+    // Calculate base elevation from island shape
+    float elevation;
+
+    if (islandShape < 0.05f) {
+        // Deep ocean
+        elevation = oceanFloor;
+    }
+    else if (islandShape < 0.25f) {
+        // Underwater slope
+        float t = (islandShape - 0.05f) / 0.20f;
+        elevation = glm::mix(oceanFloor, -3.0f, glm::pow(t, 1.5f));
+    }
+    else if (islandShape < 0.40f) {
+        // Coastline transition (beaches and cliffs)
+        float t = (islandShape - 0.25f) / 0.15f;
+
+        // Beach areas
+        if (coastType > 0.55f) {
+            elevation = glm::mix(-3.0f, 1.0f, glm::pow(t, 0.6f));
+
+            // Sand ripples
+            float ripple = sin(x * 4.0f) * cos(y * 4.0f) * 0.12f;
+            if (elevation > -1.0f && elevation < 2.0f) {
+                elevation += ripple * (1.0f - abs(elevation) * 0.5f);
+            }
+        }
+        // Cliff areas
+        else {
+            elevation = glm::mix(-3.0f, 5.0f, glm::pow(t, 3.0f));
+
+            // Rocky texture for cliffs
+            float rockDetail = fbm(x * 0.25f, y * 0.25f, 3) * 1.2f;
+            elevation += rockDetail;
+        }
+    }
+    else {
+        // Inland terrain
+        float t = (islandShape - 0.40f) / 0.60f;
+
+        // Height increases towards center
+        float centerHeight = maxHeight * t;
+
+        // Apply terrain noise
+        float terrainHeight = centerHeight * baseNoise;
+
+        // Blend from coast to inland
+        float coastalHeight = (coastType > 0.55f) ? 1.0f : 5.0f;
+        elevation = glm::mix(coastalHeight, terrainHeight, glm::pow(t, 0.7f));
+
+        // Add detail layers
+        elevation += fbm(x * 0.12f, y * 0.12f, 3) * 2.5f * t;
+
+        // Central peak/crater
+        if (islandShape > 0.85f) {
+            float centerMod = (islandShape - 0.85f) / 0.15f;
+
+            if (baseNoise > 0.5f) {
+                // Peak
+                elevation += centerMod * 8.0f;
+            } else {
+                // Crater/valley
+                elevation -= centerMod * 4.0f;
+            }
+        }
+    }
+
+    return elevation;
 }
 
 float Terrain::getHeightAt(float worldX, float worldZ) const {
-    // Convert world coordinates to grid coordinates
     float fx = (worldX / size + 0.5f) * resolution;
     float fz = (worldZ / size + 0.5f) * resolution;
 
-    // Clamp to valid range
     if (fx < 0 || fx >= resolution || fz < 0 || fz >= resolution) {
         return 0.f;
     }
 
-    // Get the four surrounding vertices
     int x0 = (int)floor(fx);
     int z0 = (int)floor(fz);
-    int x1 = std::min(x0 + 1, resolution);
-    int z1 = std::min(z0 + 1, resolution);
+    int x1 = std::min(x0 + 1, resolution - 1);
+    int z1 = std::min(z0 + 1, resolution - 1);
 
-    // Get interpolation factors
     float tx = fx - x0;
     float tz = fz - z0;
 
-    // Get heights at corners
     int idx00 = z0 * (resolution + 1) + x0;
     int idx10 = z0 * (resolution + 1) + x1;
     int idx01 = z1 * (resolution + 1) + x0;
@@ -305,7 +392,6 @@ float Terrain::getHeightAt(float worldX, float worldZ) const {
     float h01 = positions[idx01].y;
     float h11 = positions[idx11].y;
 
-    // Bilinear interpolation
     float h0 = h00 * (1 - tx) + h10 * tx;
     float h1 = h01 * (1 - tx) + h11 * tx;
     return h0 * (1 - tz) + h1 * tz;
@@ -348,7 +434,6 @@ void Terrain::generateGrid() {
 void Terrain::computeNormals() {
     normals.resize(positions.size(), glm::vec3(0.f));
 
-    // Calculate face normals and accumulate
     for (size_t i = 0; i < indices.size(); i += 3) {
         int i0 = indices[i];
         int i1 = indices[i + 1];
@@ -363,7 +448,6 @@ void Terrain::computeNormals() {
         normals[i2] += n;
     }
 
-    // Normalize all normals with safety check
     for (auto &n : normals) {
         float len = glm::length(n);
         n = len > 0.0001f ? n / len : glm::vec3(0, 1, 0);
@@ -373,22 +457,18 @@ void Terrain::computeNormals() {
 void Terrain::updateBuffers() {
     glBindVertexArray(vao);
 
-    // Update positions
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, positions.size() * sizeof(glm::vec3),
                  positions.data(), GL_STATIC_DRAW);
 
-    // Update normals
     glBindBuffer(GL_ARRAY_BUFFER, nbo);
     glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(glm::vec3),
                  normals.data(), GL_STATIC_DRAW);
 
-    // Update UVs
     glBindBuffer(GL_ARRAY_BUFFER, tbo);
     glBufferData(GL_ARRAY_BUFFER, uvs.size() * sizeof(glm::vec2),
                  uvs.data(), GL_STATIC_DRAW);
 
-    // Update indices
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int),
                  indices.data(), GL_STATIC_DRAW);
@@ -400,7 +480,6 @@ void Terrain::updateBuffers() {
 
 void Terrain::setType(TerrainType newType) {
     if (type == newType) return;
-
     type = newType;
     regenerate();
 }

@@ -76,6 +76,7 @@ private:
 
     // Masks and filters
     float islandMask(float x, float y);
+    float coastlineVariation(float x, float y);
     float erosionFilter(float height, float slope);
 
     // Permutation table for Perlin noise

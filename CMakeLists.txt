@@ -97,6 +97,7 @@ set(PPGSO_SHADER_SRC
         shader/diffuse_vert.glsl shader/diffuse_frag.glsl
         shader/texture_vert.glsl shader/texture_frag.glsl
         shader/terrain_vert.glsl shader/terrain_frag.glsl
+        shader/ocean_vert.glsl shader/ocean_frag.glsl
 )
 add_resources(shaders ${PPGSO_SHADER_SRC})
 
@@ -113,7 +114,6 @@ if (ASSIMP_FOUND)
           ppgso/image_raw.cpp
           ppgso/texture.cpp
           ppgso/window.cpp
-          src/terrain/Terrain.cpp
   )
 else ()
   message(STATUS "Using TINY object loader")
@@ -126,7 +126,6 @@ else ()
           ppgso/image_raw.cpp
           ppgso/texture.cpp
           ppgso/window.cpp
-          src/terrain/Terrain.cpp
   )
 endif ()
 
@@ -239,6 +238,20 @@ target_link_libraries(gl9_scene ppgso shaders)
 install(TARGETS gl9_scene DESTINATION .)
 add_custom_command(TARGET gl9_scene POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/data/ ${CMAKE_CURRENT_BINARY_DIR})
 
+
+add_executable(island_demo
+        src/examples/island_demo.cpp
+        src/terrain/Terrain.cpp
+        src/ocean/Ocean.cpp
+)
+target_include_directories(island_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(island_demo PRIVATE ppgso shaders)
+add_custom_command(
+        TARGET island_demo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/shader
+        ${CMAKE_BINARY_DIR}/shader
+)
 # TASKs
 
 # task1_filter
@@ -291,16 +304,9 @@ add_custom_command(TARGET my_project POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/data/ ${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(island_demo src/examples/island_demo.cpp)
-target_include_directories(island_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(island_demo PRIVATE ppgso shaders)
 
-add_custom_command(
-        TARGET island_demo POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/shader
-        ${CMAKE_BINARY_DIR}/shader
-)
+
+
 
 #
 # INSTALLATION
